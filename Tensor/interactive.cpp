@@ -1,5 +1,6 @@
 #include "tensor.hpp"
 
+#include <algorithm>
 #include <iomanip>
 #include <iostream>
 #include <map>
@@ -22,7 +23,7 @@ static void print_help() {
         << "  pow <out> <a> <exponent>\n"
         << "  matmul <out> <a> <b>\n"
         << "  transpose|relu|sigmoid|tanh|softmax|sum|mean <out> <a>\n"
-        << "  backward <loss>\n"
+        << "  backward|backwards <loss>\n"
         << "  zero <name>\n"
         << "  zero_all\n"
         << "  step <learning_rate> <param_count> <param1> ... <paramN>\n"
@@ -49,6 +50,104 @@ static void print_tensor(const Tensor& t, bool gradients) {
         }
         std::cout << "]\n";
     }
+}
+
+static std::string format_number(double value) {
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(6) << value;
+    return out.str();
+}
+
+static std::string shorten(std::string text, size_t width) {
+    if (text.size() <= width) return text;
+    if (width <= 3) return text.substr(0, width);
+    return text.substr(0, width - 3) + "...";
+}
+
+static std::string format_tensor_inline(const Tensor& t, bool gradients) {
+    std::ostringstream out;
+    if (t.rows() == 1 && t.cols() == 1) {
+        return format_number(gradients ? t.grad_at(0, 0) : t.at(0, 0));
+    }
+
+    out << "[";
+    for (size_t i = 0; i < t.rows(); ++i) {
+        if (i > 0) out << "; ";
+        for (size_t j = 0; j < t.cols(); ++j) {
+            if (j > 0) out << ", ";
+            out << format_number(gradients ? t.grad_at(i, j) : t.at(i, j));
+        }
+    }
+    out << "]";
+    return out.str();
+}
+
+static void print_separator(size_t name_w, size_t shape_w, size_t value_w, size_t grad_w) {
+    std::cout << "+"
+              << std::string(name_w + 2, '-')
+              << "+"
+              << std::string(shape_w + 2, '-')
+              << "+"
+              << std::string(value_w + 2, '-')
+              << "+"
+              << std::string(grad_w + 2, '-')
+              << "+\n";
+}
+
+static void print_backward_summary(const std::map<std::string, Tensor>& vars,
+                                   const std::string& loss_name) {
+    constexpr size_t max_name_w = 18;
+    constexpr size_t max_shape_w = 8;
+    constexpr size_t max_value_w = 34;
+    constexpr size_t max_grad_w = 34;
+
+    std::vector<std::string> names;
+    std::vector<std::string> shapes;
+    std::vector<std::string> values;
+    std::vector<std::string> grads;
+
+    size_t name_w = std::string("Tensor").size();
+    size_t shape_w = std::string("Shape").size();
+    size_t value_w = std::string("Value").size();
+    size_t grad_w = std::string("Gradient").size();
+
+    for (const auto& [name, tensor] : vars) {
+        std::ostringstream shape;
+        shape << tensor.rows() << "x" << tensor.cols();
+
+        names.push_back(shorten(name, max_name_w));
+        shapes.push_back(shorten(shape.str(), max_shape_w));
+        values.push_back(shorten(format_tensor_inline(tensor, false), max_value_w));
+        grads.push_back(shorten(format_tensor_inline(tensor, true), max_grad_w));
+
+        name_w = std::max(name_w, names.back().size());
+        shape_w = std::max(shape_w, shapes.back().size());
+        value_w = std::max(value_w, values.back().size());
+        grad_w = std::max(grad_w, grads.back().size());
+    }
+
+    name_w = std::min(name_w, max_name_w);
+    shape_w = std::min(shape_w, max_shape_w);
+    value_w = std::min(value_w, max_value_w);
+    grad_w = std::min(grad_w, max_grad_w);
+
+    std::cout << "\nBackward result summary\n";
+    std::cout << "loss: " << loss_name << " = " << format_number(vars.at(loss_name).item()) << "\n";
+    print_separator(name_w, shape_w, value_w, grad_w);
+    std::cout << "| " << std::left << std::setw(static_cast<int>(name_w)) << "Tensor"
+              << " | " << std::left << std::setw(static_cast<int>(shape_w)) << "Shape"
+              << " | " << std::left << std::setw(static_cast<int>(value_w)) << "Value"
+              << " | " << std::left << std::setw(static_cast<int>(grad_w)) << "Gradient"
+              << " |\n";
+    print_separator(name_w, shape_w, value_w, grad_w);
+    for (size_t i = 0; i < names.size(); ++i) {
+        std::cout << "| " << std::left << std::setw(static_cast<int>(name_w)) << names[i]
+                  << " | " << std::left << std::setw(static_cast<int>(shape_w)) << shapes[i]
+                  << " | " << std::left << std::setw(static_cast<int>(value_w)) << values[i]
+                  << " | " << std::left << std::setw(static_cast<int>(grad_w)) << grads[i]
+                  << " |\n";
+    }
+    print_separator(name_w, shape_w, value_w, grad_w);
 }
 
 static void run_fit_linear(std::istringstream& in) {
@@ -242,12 +341,12 @@ int main() {
                 if (cmd == "sum") vars[out] = vars[a].sum();
                 if (cmd == "mean") vars[out] = vars[a].mean();
                 std::cout << "created " << out << "\n";
-            } else if (cmd == "backward") {
+            } else if (cmd == "backward" || cmd == "backwards") {
                 std::string loss;
                 in >> loss;
                 if (!has_var(vars, loss)) continue;
                 vars[loss].backward();
-                std::cout << "backward finished\n";
+                print_backward_summary(vars, loss);
             } else if (cmd == "step") {
                 double lr = 0.0;
                 int count = 0;

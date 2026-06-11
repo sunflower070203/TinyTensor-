@@ -5,6 +5,8 @@
 
 ## 功能
 
+### 基础版
+
 - 标量、向量、矩阵 `Tensor`
 - 前向计算自动构建计算图
 - `backward()` 使用拓扑排序和链式法则反向传播梯度
@@ -20,16 +22,31 @@
   - 多层神经网络解决 XOR
   - 多层神经网络解决同心圆二分类
 
+### 挑战版（可视化）
+
+- 决策边界可视化：热力图展示分类面（蓝色=类别 0，红色=类别 1）
+- Loss 曲线可视化：展示训练过程中的损失变化
+- 训练数据散点叠加：在决策边界上标注训练样本
+- 静态导出：生成 PPM/BMP 图片文件，可直接打开查看
+- 实时训练窗口：Win32 原生窗口，训练过程中实时刷新决策边界
+
 ## 文件结构
 
 ```text
-Tensor/
-  CMakeLists.txt   CMake 构建配置
-  tensor.hpp       自动求导核心、Linear、SGD
-  main.cpp         训练示例
-  interactive.cpp  用户自定义输入的交互式终端
-  tests.cpp        功能验证测试
-  readme.md        项目说明
+Tensor/                          ← 基础版
+  CMakeLists.txt                   CMake 构建配置
+  tensor.hpp                       自动求导核心、Linear、SGD
+  main.cpp                         训练示例（线性回归、XOR、同心圆）
+  interactive.cpp                  用户自定义输入的交互式终端
+  tests.cpp                        功能验证测试
+
+visualization/                   ← 挑战版
+  CMakeLists.txt                   CMake 构建配置
+  image_writer.hpp                 PPM/BMP 图片写入工具（纯 C++，零依赖）
+  plot.hpp                         绘图工具：热力图、散点、Loss 曲线
+  train_and_export.cpp             静态导出：训练 + 生成图片文件
+  live_window.hpp                  Win32 实时可视化窗口
+  train_live.cpp                   实时训练：窗口中实时展示决策边界变化
 ```
 
 ## 快速运行
@@ -40,36 +57,63 @@ Tensor/
 $env:PATH='C:\msys64\mingw64\bin;' + $env:PATH
 ```
 
-直接编译测试：
+### 基础版
 
 ```powershell
-g++ -std=c++17 tests.cpp -O2 -o tensor_tests.exe
+# 测试
+g++ -std=c++17 Tensor/tests.cpp -O2 -o tensor_tests.exe
 .\tensor_tests.exe
-```
 
-直接编译示例：
-
-```powershell
-g++ -std=c++17 main.cpp -O2 -o tensor_demo.exe
+# 训练示例
+g++ -std=c++17 Tensor/main.cpp -O2 -o tensor_demo.exe
 .\tensor_demo.exe
-```
 
-直接编译交互式终端：
-
-```powershell
-g++ -std=c++17 interactive.cpp -O2 -o tensor_cli.exe
+# 交互式终端
+g++ -std=c++17 Tensor/interactive.cpp -O2 -o tensor_cli.exe
 .\tensor_cli.exe
 ```
 
 也可以用 CMake：
 
 ```powershell
-cmake -S . -B build
+cmake -S Tensor -B build
 cmake --build build
 .\build\tensor_tests.exe
 .\build\tensor_demo.exe
 .\build\tensor_cli.exe
 ```
+
+### 挑战版 — 静态图片导出
+
+```powershell
+g++ -std=c++17 -I Tensor -I visualization visualization/train_and_export.cpp -O2 -o train_export.exe
+.\train_export.exe
+```
+
+运行后在 `output/` 目录生成以下文件：
+
+| 文件 | 说明 |
+|------|------|
+| `xor_boundary.bmp` | XOR 决策边界（用画图打开） |
+| `xor_loss_curve.bmp` | XOR Loss 曲线 |
+| `circle_boundary.bmp` | 同心圆决策边界 |
+| `circle_loss_curve.bmp` | 同心圆 Loss 曲线 |
+| `*_data.csv` / `*_loss.csv` | 原始数据（可用 Excel 打开） |
+
+```powershell
+# 用 Windows 画图打开查看
+mspaint output\xor_boundary.bmp
+mspaint output\circle_boundary.bmp
+```
+
+### 挑战版 — 实时训练窗口
+
+```powershell
+g++ -std=c++17 -I Tensor -I visualization visualization/train_live.cpp -O2 -lgdi32 -o train_live.exe
+.\train_live.exe
+```
+
+运行后弹出 Win32 窗口，实时展示训练过程中决策边界的变化。训练完成后关闭窗口，自动进入下一个任务。
 
 ## 用户自定义输入
 
@@ -188,5 +232,14 @@ for (int epoch = 0; epoch < 200; ++epoch) {
 - 线性回归 200 轮收敛到 `w ~= 2, b ~= 1`
 - 两层神经网络解决 XOR
 - 两层神经网络解决同心圆二分类，准确率不低于 90%
+
+## 可视化实现说明
+
+挑战版可视化采用纯 C++ 实现，零第三方依赖：
+
+- **PPM/BMP 图片生成**：`image_writer.hpp` 直接写入标准图片格式，无需 OpenCV 或其他图像库
+- **Win32 实时窗口**：`live_window.hpp` 使用 Windows 原生 GDI API 创建窗口并逐像素绘制
+- **决策边界**：在密集网格上逐点前向预测，将预测值 [0,1] 映射为蓝→白→红渐变色
+- **Loss 曲线**：使用 Bresenham 直线算法在像素缓冲上绘制折线图
 
 当前实现面向教学和小规模实验，不追求工业级性能、GPU 支持或复杂张量维度。
